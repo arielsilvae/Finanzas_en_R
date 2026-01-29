@@ -14,51 +14,39 @@ library(purrr)
 
 ### Importación y preparación del archivo de portafolio
 
-ruta_excel <- "balance acciones.xlsx"
+ruta_excel <- "portafolio_proyecto.xlsx"
 
 portafolio_raw <- read_excel(ruta_excel)
 glimpse(portafolio_raw)
 
 ### Limpieza y  preparación de datos
-portafolio <- portafolio_raw %>%
+tickers <- portafolio_raw %>%
   clean_names() %>%
-  select(
-    ticker = activo,
-    cantidad = total_de_acciones,
-    precio_compra = precio_compra,
+  transmute(
+    ticker = toupper(activo),
     sector = industria_sector
-  ) %>%
-  filter(!is.na(ticker)) %>%
-  mutate(
-    ticker = toupper(ticker),
-    cantidad = as.numeric(cantidad),
-    precio_compra = as.numeric(precio_compra)
   )
 
-glimpse(portafolio)
+glimpse(tickers)
   
 ### consolidación de acciones duplicadas
+tickers_unicos <- tickers %>%
+  distinct(ticker, sector)
 
-portafolio_consolidado <- portafolio %>%
-  group_by(ticker, sector) %>%
-  summarise(
-    cantidad_total = sum(cantidad, na.rm = TRUE),
-    precio_compra_prom = sum(cantidad * precio_compra, na.rm = TRUE) /
-                          sum(cantidad, na.rm = TRUE),
-    .groups = "drop"
-  )
-glimpse(portafolio_consolidado)
+tickers_vector <- tickers_unicos$ticker
+length(tickers_vector)
 
-### preparación de tickers
-tickers <- portafolio_consolidado$ticker
-
+### Precios
 from <- "2021-01-01"
 batch_size <- 50
 
-precios <- tickers %>%
+precios <- tickers_vector %>%
   split(ceiling(seq_along(.) / batch_size)) %>%
   map_dfr(~ tq_get(.x, from = from))
 
+glimpse(precios)
+
+### resumen de precios
 resumen_precios <- precios %>%
   group_by(symbol) %>%
   summarise(
