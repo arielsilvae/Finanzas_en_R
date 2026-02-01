@@ -1,12 +1,6 @@
-# importación y limpieza de mi Portafolio
+#Proyecto de construcción y gestión de un portafolio de inversiones 
 
-## Objetivo
-
-### Importar de excel de mi portafolio, limpiar y consolidar datos
-
-### (ya que lo tengo en 2 broker) para dejar el dataset listo
-
-### para el analisis financiero
+### carga de Librería
 
 library(readxl) 
 library(dplyr) 
@@ -14,15 +8,11 @@ library(janitor)
 library(tidyquant) 
 library(purrr)
 library(ggplot2)
-ls()
 
-### Importación de Excel y preparación del archivo de portafolio
+### Importación de Excel y limpieza del portafolio
 
 ruta_excel \<- "portafolio_proyecto.xlsx"
-
 portafolio_raw \<- read_excel(ruta_excel) glimpse(portafolio_raw)
-
-### Limpieza y preparación de datos
 
 tickers \<- portafolio_raw %\>% clean_names()
 %\>% transmute( ticker = toupper(activo), sector = industria_sector )
@@ -36,10 +26,9 @@ tickers_unicos \<- tickers
 
 tickers_vector \<- tickers_unicos\$ticker length(tickers_vector)
 
-### Descarga de precios
+### Descarga de precios historicos
 
 from \<- "2021-01-01" batch_size \<- 50
-
 precios \<- tickers_vector %\>% split(ceiling(seq_along(.) / batch_size))
 %\>% map_dfr(\~ tq_get(.x, from = from))
 
@@ -67,7 +56,7 @@ retornos_mensuales_limpios \<- retornos_mensuales
 %\>% rename( retorno_mensual = monthly.returns ) 
 %\>% filter(!is.na(retorno_mensual))
 
-### Calculo estadisticos por acción
+### Calculo estadisticos por acción 
 
 estadisticos_activos \<- retornos_mensuales_limpios
 %\>% group_by(symbol)
@@ -76,36 +65,15 @@ volatilidad = sd(retorno_mensual),
 observaciones = n(), 
 .groups = "drop" ) glimpse(estadisticos_activos)
 
-### Ranking de retorno/volatilidad
+### Analisís de retorno/volatilidad
 
-``` {
-A partir de los precios ajustados de cada activo, se calcularon retornos 
-logarítmicos mensuales.  Este enfoque permite capturar de mejor manera la 
-variación porcentual continua de los precios, facilitando el análisis 
-estadístico y la comparación entre activos con distintos niveles de precio.
-
-Posteriormente, se estimaron estadísticos descriptivos por activo, tales como el 
-retorno promedio mensual y la volatilidad, con el objetivo de caracterizar el
-desempeño histórico y el nivel de riesgo 
-asociado a cada instrumento del portafolio.
-}
-```
-
-```{r ranking-retorno}
 estadisticos_activos %>%
   arrange(desc(retorno_promedio))
-```
 
-```{r ranking-volatilidad}
 estadisticos_activos %>%
   arrange(desc(volatilidad))
-```
+  
 ### Grafico riesgo v/s retorno
-“El gráfico riesgo–retorno permite visualizar la relación entre el retorno 
-promedio mensual y la volatilidad de cada activo del portafolio. Esta
-representación facilita la identificación de activos con mayor nivel de riesgo y 
-aquellos con un desempeño más estable, sirviendo como apoyo a la toma de 
-decisiones y al análisis de diversificación.”
 
 grafico_riesgo_retorno <- ggplot(
   estadisticos_activos,
@@ -127,15 +95,6 @@ grafico_riesgo_retorno <- ggplot(
 grafico_riesgo_retorno
 
 ### correlación entre activos del portofalio
-
-### Correlación entre activos
-
-Con el objetivo de evaluar el grado de relación entre los retornos mensuales 
-de los activos del portafolio, se calcula la matriz de correlación de Pearson. 
-Este análisis permite identificar activos con movimientos similares
-o divergentes en el tiempo, información clave para evaluar el nivel de
-diversificación y el riesgo conjunto del portafolio.
-
 
 retornos_wide <- retornos_mensuales_limpios %>%
   select(symbol, date, retorno_mensual) %>%
@@ -166,53 +125,119 @@ ggcorrplot(
 
 ### Value at Risk (VaR) del portafolio
 
-Con el objetivo de cuantificar el riesgo agregado del portafolio, se calcula el
-Value at Risk (VaR),
-una medida que estima la pérdida máxima esperada bajo un determinado nivel de
-confianza y horizonte temporal.
-
-El VaR permite evaluar escenarios adversos de mercado y constituye una 
-herramienta clave para la toma de decisiones informadas y el control del riesgo, 
-reduciendo la influencia del sesgo emocional en el manejo del portafolio.
-
 retornos_wide_limpios <- retornos_wide %>%
 
 ### Preparación de retornos para VaR
 
+retornos_wide <- retornos_mensuales %>%
+  select(symbol, date, monthly.returns) %>%
+  pivot_wider(
+    names_from = symbol,
+    values_from = monthly.returns
+  )
+
+glimpse(retornos_wide)
+
+### Limpieza NA
+
 retornos_wide_limpios <- retornos_wide %>%
+  select(-date) %>%     # quitamos fecha
   na.omit()
 
 str(retornos_wide_limpios)
 
-### Pesos del portafolio (igual ponderación)
+### pesos del portafolio
+
+retornos_wide_limpios <- retornos_wide %>%
+  select(-date) %>%      # eliminar fecha si existe
+  mutate(across(everything(), as.numeric)) %>%
+  na.omit()
+
+str(retornos_wide_limpios)
 
 n_activos <- ncol(retornos_wide_limpios)
-
 pesos <- rep(1 / n_activos, n_activos)
 
-pesos
+length(pesos)
+ncol(retornos_wide_limpios)
 
-### Retorno mensual del portafolio
+### Retornos mensuales del portafolio
 
-retornos_pf <- as.matrix(retornos_wide_limpios) %*% pesos
-
+retornos_pf <- as.matrix(retornos_wide_limpios) %*% matrix(pesos, ncol = 1)
 retornos_pf <- as.numeric(retornos_pf)
 
 summary(retornos_pf)
 
-### Value at Risk (VaR) histórico
+### Var 95%
+# El VaR histórico estima la pérdida máxima esperada del portafolio
+# bajo un nivel de confianza dado, utilizando la distribución empírica
+# de los retornos históricos observados.
 
 alpha <- 0.95
-
 VaR_historico <- quantile(retornos_pf, probs = 1 - alpha)
-
 VaR_historico
 
+### VaR paramétrico (Normal)
+# El VaR paramétrico asume que los retornos del portafolio siguen
+# una distribución normal, estimando el riesgo extremo a partir
+# de la media y desviación estándar de los retornos.
 
+media_pf <- mean(retornos_pf)
+sd_pf <- sd(retornos_pf)
 
+VaR_parametrico <- qnorm(
+  p = 1 - alpha,
+  mean = media_pf,
+  sd = sd_pf
+)
 
+VaR_parametrico
 
+### VaR MonteCarlo
+# El VaR Monte Carlo permite simular múltiples escenarios de retorno
+# bajo supuestos estadísticos, capturando eventos extremos que
+# no necesariamente ocurrieron en el historial observado.
 
+set.seed(123)
+n_sim <- 10000
+retornos_simulados <- rnorm(
+  n_sim,
+  mean = media_pf,
+  sd = sd_pf
+)
 
+VaR_montecarlo <- quantile(retornos_simulados, probs = 1 - alpha)
 
+VaR_montecarlo
 
+hist(
+  retornos_simulados,
+  breaks = 50,
+  main = "Distribución simulada de retornos del portafolio",
+  xlab = "Retorno mensual",
+  col = "lightblue"
+)
+
+abline(v = VaR_montecarlo, col = "red", lwd = 2)
+
+##Recomendación de herramienta de apoyo al rebalanceo de cartera de inversión
+
+### Métrica simple de eficiencia riesgo-retorno
+
+ranking_rebalanceo <- estadisticos_activos %>%
+  mutate(
+    ratio_riesgo_retorno = retorno_promedio / volatilidad
+  ) %>%
+  arrange(desc(ratio_riesgo_retorno))
+
+ranking_rebalanceo
+
+### Conclusión preliminar
+
+´´´{En base al ranking riesgo–retorno, activos como NVDA, GOOGL y BCH presentan 
+una mejor relación entre retorno esperado y volatilidad, lo que sugiere que
+podrían incrementar su ponderación relativa en un eventual rebalanceo del
+portafolio.
+
+Por el contrario, activos con bajo ratio riesgo–retorno aportarían menor 
+eficiencia marginal, siendo candidatos a mantener o reducir su exposición.}´´´
